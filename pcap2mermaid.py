@@ -86,7 +86,7 @@ def parse_sip(data):
         return {
             'is_request': False,
             'code': int(resp_match.group(1)),
-            'reason': resp_match.group(2),
+            'reason': resp_match.group(2).strip(),  # Strip whitespace to avoid extra space before ')'
             'raw_line': text.splitlines()[0]
         }
     return None
@@ -187,7 +187,7 @@ def process_pcap(
                     'text': (
                         f"{sip_info['method']} {sip_info['target']}"
                         if sip_info['is_request']
-                        else f"{sip_info['code']} ({sip_info['reason'].rstrip(')')})"
+                        else f"{sip_info['code']} ({sip_info['reason']})"
                     ),
                     'src': src,
                     'dst': dst,
@@ -242,6 +242,7 @@ def main():
     parser.add_argument("--verbose", help="Show debug log messages", action="store_true")
     parser.add_argument("--quiet", "--silent", help="Suppress informational log messages; only show errors", action="store_true")
     parser.add_argument("--no-bottom-actors", help="Hide the actor boxes at the bottom of the diagram (mirrorActors: false)", action="store_true")
+    parser.add_argument("--all-participants", help="Declare all possible participants seen, even if not shown in diagram", action="store_true")
     args = parser.parse_args()
 
     # Standard logging precedence: quiet > verbose > info
@@ -296,6 +297,22 @@ def main():
         participant_map = host2name if filter_unmapped else {}
         short_map = {p: p for p in all_participants}
 
+    # Build set of used participants (those appearing in at least one SIP message in diagram)
+    used_participants = set()
+    for pkt in sip_packets:
+        a, b = pkt['src'], pkt['dst']
+        if filter_unmapped and (a not in participant_map or b not in participant_map):
+            continue
+        used_participants.add(a)
+        used_participants.add(b)
+
+    # By default, declare only used participants. If --all-participants is set, declare all.
+    if args.add_participants:
+        if args.all_participants:
+            participants_to_write = participant_map.keys()
+        else:
+            participants_to_write = [h for h in participant_map.keys() if h in used_participants]
+
     # Decide output destination
     outfh = open(args.outfile, "w") if args.outfile else sys.stdout
 
@@ -307,7 +324,7 @@ def main():
         if args.autonumber:
             outfh.write("    autonumber\n")
         if args.add_participants:
-            for host in sorted(participant_map.keys(), key=lambda k: short_map[k]):
+            for host in sorted(participants_to_write, key=lambda k: short_map[k]):
                 outfh.write(f"    participant {short_map[host]} as {host}\n")
         for pkt in sip_packets:
             a, b = pkt['src'], pkt['dst']
