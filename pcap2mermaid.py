@@ -73,10 +73,12 @@ def parse_sip(data):
     text = text.lstrip()
     req_match = re.match(r"^([A-Z]+)\s+sip:([^ ]+)\s+SIP/2.0", text)
     if req_match:
+        # Only keep part before ';' in target
+        target = req_match.group(2).split(';', 1)[0]
         return {
             'is_request': True,
             'method': req_match.group(1),
-            'target': req_match.group(2),
+            'target': target,
             'raw_line': text.splitlines()[0]
         }
     resp_match = re.match(r"^SIP/2.0\s+(\d{3})\s+(.+)", text)
@@ -307,15 +309,12 @@ def main():
             a, b = pkt['src'], pkt['dst']
             if filter_unmapped and (a not in participant_map or b not in participant_map):
                 continue
-            # Use short names if --add-participants, else use IP:port
             a_out = short_map[a] if args.add_participants else a
             b_out = short_map[b] if args.add_participants else b
             arrow = "->>" if pkt['req'] else "-->>"
             msg = pkt['text'].strip()
-            # Clean up message: close open parens, remove trailing/leading parens, fix double parens, etc.
-            msg = re.sub(r"\(\s*", "(", msg)
-            msg = re.sub(r"\s*\)", ")", msg)
-            msg = msg.replace("()", "")
+            # Remove all internal newlines and carriage returns and collapse whitespace
+            msg = re.sub(r'\s+', ' ', msg).strip()
             if args.add_time:
                 msg = f"[{pkt['time']:.3f}] {msg}"
             outfh.write(f"    {a_out}{arrow}{b_out}: {msg}\n")
