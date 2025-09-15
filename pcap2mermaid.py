@@ -201,11 +201,24 @@ def process_pcap(
     logger and logger.info(f"Parsed {pkt_count} packets, found {len(sip_packets)} SIP messages, dropped {dropped}")
     return sip_packets, all_participants, pkt_count, dropped, dropped_reasons
 
-def assign_participant_short_names(participants):
-    sorted_participants = sorted(participants)
-    # Use A, B, C, ... AA, AB, ...
+def chronological_participant_order(sip_packets):
+    """
+    Returns a list of unique participant host:port strings in order of first appearance
+    (either as src or dst) in the SIP message flow.
+    """
+    order = []
+    for pkt in sip_packets:
+        for p in (pkt['src'], pkt['dst']):
+            if p not in order:
+                order.append(p)
+    return order
+
+def assign_participant_short_names(participant_order):
+    """
+    Assigns short names (A, B, C, ...) to the participants in the order given.
+    """
     names = []
-    for i in range(len(sorted_participants)):
+    for i in range(len(participant_order)):
         name = ''
         x = i
         while True:
@@ -214,12 +227,12 @@ def assign_participant_short_names(participants):
             if x < 0:
                 break
         names.append(name)
-    return {host: short for host, short in zip(sorted_participants, names)}
+    return {host: short for host, short in zip(participant_order, names)}
 
 def output_summary_table(outfh, participant_map, short_map):
     outfh.write("\n%% Participant Mapping Table\n")
     outfh.write("| Short Name | Host:Port |\n|-----------|-----------|\n")
-    for host in sorted(participant_map.keys(), key=lambda k: short_map[k]):
+    for host in participant_map:
         outfh.write(f"| {short_map[host]} | {host} |\n")
 
 def main():
@@ -284,32 +297,26 @@ def main():
     # By default, add participants unless --no-add-participants is set
     add_participants = not args.no_add_participants
 
-    # Assign short names if add_participants is specified
+    # Determine participant order for short naming
     if add_participants:
-        if host2name:
-            participant_map = {p: host2name[p] for p in all_participants if p in host2name}
-        else:
-            participant_map = {p: p for p in all_participants}
-        short_map = assign_participant_short_names(participant_map.keys())
-    else:
-        participant_map = host2name if filter_unmapped else {}
-        short_map = {p: p for p in all_participants}
-
-    # Build set of used participants (those appearing in at least one SIP message in diagram)
-    used_participants = set()
-    for pkt in sip_packets:
-        a, b = pkt['src'], pkt['dst']
-        if filter_unmapped and (a not in participant_map or b not in participant_map):
-            continue
-        used_participants.add(a)
-        used_participants.add(b)
-
-    # By default, declare only used participants. If --all-participants is set, declare all.
-    if add_participants:
+        # Use only seen participants in order of appearance in flow
+        participant_order = chronological_participant_order(sip_packets)
         if args.all_participants:
-            participants_to_write = participant_map.keys()
+            # Optionally append unseen mapped participants (if using mapping/CSV)
+            if host2name:
+                for p in host2name:
+                    if p not in participant_order:
+                        participant_order.append(p)
+        # Build participant_map for display names
+        if host2name:
+            participant_map = {p: host2name.get(p, p) for p in participant_order}
         else:
-            participants_to_write = [h for h in participant_map.keys() if h in used_participants]
+            participant_map = {p: p for p in participant_order}
+        short_map = assign_participant_short_names(participant_order)
+    else:
+        all_participants_list = sorted(all_participants)
+        participant_map = host2name if filter_unmapped else {p: p for p in all_participants_list}
+        short_map = {p: p for p in all_participants_list}
 
     # Decide output destination
     outfh = open(args.outfile, "w") if args.outfile else sys.stdout
@@ -324,8 +331,8 @@ def main():
         if args.autonumber:
             diagram_lines.append("    autonumber")
         if add_participants:
-            for host in sorted(participants_to_write, key=lambda k: short_map[k]):
-                diagram_lines.append(f"    participant {short_map[host]} as {host}")
+            for host in participant_map:
+                diagram_lines.append(f"    participant {short_map[host]} as {participant_map[host]}")
         for pkt in sip_packets:
             a, b = pkt['src'], pkt['dst']
             if filter_unmapped and (a not in participant_map or b not in participant_map):
@@ -342,11 +349,7 @@ def main():
             seq_count += 1
 
         if args.summary_table and add_participants:
-            # Build summary table lines
-            diagram_lines.append("\n%% Participant Mapping Table")
-            diagram_lines.append("| Short Name | Host:Port |\n|-----------|-----------|")
-            for host in sorted(participant_map.keys(), key=lambda k: short_map[k]):
-                diagram_lines.append(f"| {short_map[host]} | {host} |")
+            output_summary_table(outfh, participant_map, short_map)
 
         # Write to file or stdout
         for line in diagram_lines:
