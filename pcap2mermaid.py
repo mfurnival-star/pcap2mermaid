@@ -14,8 +14,6 @@ import re
 import argparse
 import logging
 import csv
-import zlib
-import base64
 from scapy.all import PcapReader, UDP, TCP, IP, IPv6, Raw
 
 DEFAULT_SIP_PORT = 5060
@@ -224,12 +222,6 @@ def output_summary_table(outfh, participant_map, short_map):
     for host in sorted(participant_map.keys(), key=lambda k: short_map[k]):
         outfh.write(f"| {short_map[host]} | {host} |\n")
 
-def encode_mermaid_for_playground(diagram_code):
-    # Use raw DEFLATE (no zlib header/footer, wbits=-15)
-    compressed = zlib.compress(diagram_code.encode("utf-8"), level=9, wbits=-15)
-    b64 = base64.urlsafe_b64encode(compressed).decode("utf-8").rstrip("=")
-    return b64
-
 def main():
     parser = argparse.ArgumentParser(description="Convert SIP pcap to Mermaid sequence diagram.")
     parser.add_argument("infile", help="Input pcap file")
@@ -248,7 +240,6 @@ def main():
     parser.add_argument("--summary-table", help="Add a summary table of participant names to output", action="store_true")
     parser.add_argument("--logfile", help="Save log messages to a file", default=None)
     parser.add_argument("--all-participants", help="Declare all possible participants seen, even if not shown in diagram", action="store_true")
-    parser.add_argument("--linktoplayground", help="Print a link to open the diagram in Mermaid Live Editor", action="store_true")
     args = parser.parse_args()
 
     # Logging: quiet (ERROR) is default, unless verbose given
@@ -323,7 +314,6 @@ def main():
     # Decide output destination
     outfh = open(args.outfile, "w") if args.outfile else sys.stdout
 
-    # We'll also build the diagram as a string for --linktoplayground
     diagram_lines = []
 
     try:
@@ -377,18 +367,6 @@ def main():
         unseen = seen - all_mapped
         if unseen:
             logger.warning(f"The following participants were seen in pcap but not mapped: {unseen}")
-
-    if args.linktoplayground:
-        # Remove any Markdown summary table lines, keep only diagram for playground
-        playground_lines = []
-        for line in diagram_lines:
-            if line.strip().startswith("%% Participant Mapping Table"):
-                break
-            playground_lines.append(line)
-        # Join and encode diagram for Mermaid Live Editor URL
-        playground_code = "\n".join(playground_lines)
-        encoded = encode_mermaid_for_playground(playground_code)
-        print("\nOpen your diagram in Mermaid Live Editor:\nhttps://mermaid.live/edit#pako:" + encoded)
 
 if __name__ == "__main__":
     main()
