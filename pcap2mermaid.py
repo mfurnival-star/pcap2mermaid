@@ -241,6 +241,7 @@ def main():
     parser.add_argument("--logfile", help="Save log messages to a file", default=None)
     parser.add_argument("--verbose", help="Show debug log messages", action="store_true")
     parser.add_argument("--quiet", "--silent", help="Suppress informational log messages; only show errors", action="store_true")
+    parser.add_argument("--no-bottom-actors", help="Hide the actor boxes at the bottom of the diagram (mirrorActors: false)", action="store_true")
     args = parser.parse_args()
 
     # Standard logging precedence: quiet > verbose > info
@@ -299,6 +300,9 @@ def main():
     outfh = open(args.outfile, "w") if args.outfile else sys.stdout
 
     try:
+        # Mermaid init config for hiding bottom actors (mirrorActors: false)
+        if args.no_bottom_actors:
+            outfh.write('%%{init: { "sequence": { "mirrorActors": false } }}%%\n')
         outfh.write("sequenceDiagram\n")
         if args.autonumber:
             outfh.write("    autonumber\n")
