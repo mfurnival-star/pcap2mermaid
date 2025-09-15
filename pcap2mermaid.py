@@ -91,7 +91,7 @@ def parse_sip(data):
 
 def hostport(ip, port):
     if ':' in ip and not ip.startswith('['):
-        return f"[{ip}]:{port}"
+        return f"{ip}:{port}"
     else:
         return f"{ip}:{port}"
 
@@ -185,7 +185,7 @@ def process_pcap(
                     'text': (
                         f"{sip_info['method']} {sip_info['target']}"
                         if sip_info['is_request']
-                        else f"{sip_info['code']} ({sip_info['reason']})"
+                        else f"{sip_info['code']} ({sip_info['reason'].rstrip(')')})"
                     ),
                     'src': src,
                     'dst': dst,
@@ -201,18 +201,26 @@ def process_pcap(
     logger and logger.info(f"Parsed {pkt_count} packets, found {len(sip_packets)} SIP messages, dropped {dropped}")
     return sip_packets, all_participants, pkt_count, dropped, dropped_reasons
 
-def assign_participant_names(participants):
+def assign_participant_short_names(participants):
     sorted_participants = sorted(participants)
-    name_map = {}
-    for idx, p in enumerate(sorted_participants, 1):
-        name_map[p] = f"P{idx}"
-    return name_map
+    # Use A, B, C, ... AA, AB, ...
+    names = []
+    for i in range(len(sorted_participants)):
+        name = ''
+        x = i
+        while True:
+            name = chr(ord('A') + (x % 26)) + name
+            x = x // 26 - 1
+            if x < 0:
+                break
+        names.append(name)
+    return {host: short for host, short in zip(sorted_participants, names)}
 
-def output_summary_table(outfh, participant_map):
+def output_summary_table(outfh, participant_map, short_map):
     outfh.write("\n%% Participant Mapping Table\n")
-    outfh.write("| Default Name | Host:Port |\n|-------------|-----------|\n")
-    for host, name in participant_map.items():
-        outfh.write(f"| {name} | {host} |\n")
+    outfh.write("| Short Name | Host:Port |\n|-----------|-----------|\n")
+    for host in sorted(participant_map.keys(), key=lambda k: short_map[k]):
+        outfh.write(f"| {short_map[host]} | {host} |\n")
 
 def main():
     parser = argparse.ArgumentParser(description="Convert SIP pcap to Mermaid sequence diagram.")
@@ -274,13 +282,16 @@ def main():
 
     seq_count = 0
 
+    # Assign short names if add_participants is specified
     if args.add_participants:
         if host2name:
             participant_map = {p: host2name[p] for p in all_participants if p in host2name}
         else:
-            participant_map = assign_participant_names(all_participants)
+            participant_map = {p: p for p in all_participants}
+        short_map = assign_participant_short_names(participant_map.keys())
     else:
         participant_map = host2name if filter_unmapped else {}
+        short_map = {p: p for p in all_participants}
 
     # Decide output destination
     outfh = open(args.outfile, "w") if args.outfile else sys.stdout
@@ -290,27 +301,28 @@ def main():
         if args.autonumber:
             outfh.write("    autonumber\n")
         if args.add_participants:
-            declared = set()
-            for p in sorted(all_participants):
-                pname = participant_map[p] if p in participant_map else p
-                if pname not in declared:
-                    outfh.write(f"    participant {pname}\n")
-                    declared.add(pname)
+            for host in sorted(participant_map.keys(), key=lambda k: short_map[k]):
+                outfh.write(f"    participant {short_map[host]} as {host}\n")
         for pkt in sip_packets:
             a, b = pkt['src'], pkt['dst']
-            if filter_unmapped and (a not in host2name or b not in host2name):
+            if filter_unmapped and (a not in participant_map or b not in participant_map):
                 continue
-            a_out = participant_map[a] if a in participant_map else a
-            b_out = participant_map[b] if b in participant_map else b
+            # Use short names if --add-participants, else use IP:port
+            a_out = short_map[a] if args.add_participants else a
+            b_out = short_map[b] if args.add_participants else b
             arrow = "->>" if pkt['req'] else "-->>"
-            msg = pkt['text']
+            msg = pkt['text'].strip()
+            # Clean up message: close open parens, remove trailing/leading parens, fix double parens, etc.
+            msg = re.sub(r"\(\s*", "(", msg)
+            msg = re.sub(r"\s*\)", ")", msg)
+            msg = msg.replace("()", "")
             if args.add_time:
                 msg = f"[{pkt['time']:.3f}] {msg}"
             outfh.write(f"    {a_out}{arrow}{b_out}: {msg}\n")
             seq_count += 1
 
         if args.summary_table and args.add_participants:
-            output_summary_table(outfh, participant_map)
+            output_summary_table(outfh, participant_map, short_map)
     finally:
         if args.outfile:
             outfh.close()
@@ -319,7 +331,7 @@ def main():
     logger.info(f"Processed {pkt_count} packets, dropped {dropped} packets for these reasons: {dropped_reasons}")
 
     if filter_unmapped:
-        all_mapped = set(host2name.keys())
+        all_mapped = set(participant_map.keys())
         seen = all_participants
         unused = all_mapped - seen
         if unused:
