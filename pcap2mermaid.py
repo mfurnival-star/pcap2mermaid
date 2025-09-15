@@ -14,6 +14,8 @@ import re
 import argparse
 import logging
 import csv
+import zlib
+import base64
 from scapy.all import PcapReader, UDP, TCP, IP, IPv6, Raw
 
 DEFAULT_SIP_PORT = 5060
@@ -222,6 +224,14 @@ def output_summary_table(outfh, participant_map, short_map):
     for host in sorted(participant_map.keys(), key=lambda k: short_map[k]):
         outfh.write(f"| {short_map[host]} | {host} |\n")
 
+def encode_mermaid_for_playground(diagram_code):
+    # This produces a pako-compatible base64 encoding
+    compressed = zlib.compress(diagram_code.encode("utf-8"))
+    # Remove zlib header/footer for pako compatibility
+    compressed = compressed[2:-4]
+    b64 = base64.urlsafe_b64encode(compressed).decode("utf-8").rstrip("=")
+    return b64
+
 def main():
     parser = argparse.ArgumentParser(description="Convert SIP pcap to Mermaid sequence diagram.")
     parser.add_argument("infile", help="Input pcap file")
@@ -240,6 +250,7 @@ def main():
     parser.add_argument("--summary-table", help="Add a summary table of participant names to output", action="store_true")
     parser.add_argument("--logfile", help="Save log messages to a file", default=None)
     parser.add_argument("--all-participants", help="Declare all possible participants seen, even if not shown in diagram", action="store_true")
+    parser.add_argument("--linktoplayground", help="Print a link to open the diagram in Mermaid Live Editor", action="store_true")
     args = parser.parse_args()
 
     # Logging: quiet (ERROR) is default, unless verbose given
@@ -314,16 +325,19 @@ def main():
     # Decide output destination
     outfh = open(args.outfile, "w") if args.outfile else sys.stdout
 
+    # We'll also build the diagram as a string for --linktoplayground
+    diagram_lines = []
+
     try:
         # Mermaid init config for mirrorActors: false (default), true if --show-bottom-actors
         mirror_val = "true" if args.show_bottom_actors else "false"
-        outfh.write(f'%%{{init: {{ "sequence": {{ "mirrorActors": {mirror_val} }} }} }}%%\n')
-        outfh.write("sequenceDiagram\n")
+        diagram_lines.append(f'%%{{init: {{ "sequence": {{ "mirrorActors": {mirror_val} }} }} }}%%')
+        diagram_lines.append("sequenceDiagram")
         if args.autonumber:
-            outfh.write("    autonumber\n")
+            diagram_lines.append("    autonumber")
         if add_participants:
             for host in sorted(participants_to_write, key=lambda k: short_map[k]):
-                outfh.write(f"    participant {short_map[host]} as {host}\n")
+                diagram_lines.append(f"    participant {short_map[host]} as {host}")
         for pkt in sip_packets:
             a, b = pkt['src'], pkt['dst']
             if filter_unmapped and (a not in participant_map or b not in participant_map):
@@ -336,11 +350,19 @@ def main():
             msg = re.sub(r'\s+', ' ', msg).strip()
             if args.add_time:
                 msg = f"[{pkt['time']:.3f}] {msg}"
-            outfh.write(f"    {a_out}{arrow}{b_out}: {msg}\n")
+            diagram_lines.append(f"    {a_out}{arrow}{b_out}: {msg}")
             seq_count += 1
 
         if args.summary_table and add_participants:
-            output_summary_table(outfh, participant_map, short_map)
+            # Build summary table lines
+            diagram_lines.append("\n%% Participant Mapping Table")
+            diagram_lines.append("| Short Name | Host:Port |\n|-----------|-----------|")
+            for host in sorted(participant_map.keys(), key=lambda k: short_map[k]):
+                diagram_lines.append(f"| {short_map[host]} | {host} |")
+
+        # Write to file or stdout
+        for line in diagram_lines:
+            outfh.write(line + "\n")
     finally:
         if args.outfile:
             outfh.close()
@@ -357,6 +379,18 @@ def main():
         unseen = seen - all_mapped
         if unseen:
             logger.warning(f"The following participants were seen in pcap but not mapped: {unseen}")
+
+    if args.linktoplayground:
+        # Remove any Markdown summary table lines, keep only diagram for playground
+        playground_lines = []
+        for line in diagram_lines:
+            if line.strip().startswith("%% Participant Mapping Table"):
+                break
+            playground_lines.append(line)
+        # Join and encode diagram for Mermaid Live Editor URL
+        playground_code = "\n".join(playground_lines)
+        encoded = encode_mermaid_for_playground(playground_code)
+        print("\nOpen your diagram in Mermaid Live Editor:\nhttps://mermaid.live/edit#pako:" + encoded)
 
 if __name__ == "__main__":
     main()
