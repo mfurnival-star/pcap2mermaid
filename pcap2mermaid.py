@@ -5,8 +5,6 @@ pcap2mermaid: Convert SIP packets in a pcap file to a Mermaid sequence diagram.
 Usage:
     python3 pcap2mermaid.py input.pcap [output.md] [options]
 
-If output.md is omitted, the diagram is printed to the screen (stdout).
-
 Dependencies:
     pip install scapy
 """
@@ -86,7 +84,7 @@ def parse_sip(data):
         return {
             'is_request': False,
             'code': int(resp_match.group(1)),
-            'reason': resp_match.group(2).strip(),  # Strip whitespace to avoid extra space before ')'
+            'reason': resp_match.group(2).strip(),
             'raw_line': text.splitlines()[0]
         }
     return None
@@ -232,26 +230,23 @@ def main():
     parser.add_argument("--participant-names", help="CSV file: <ip>:<port>,name", default=None)
     parser.add_argument("--port", help="SIP port (default 5060)", type=int, default=DEFAULT_SIP_PORT)
     parser.add_argument("--no-skip-provisional", help="Include <180 provisional SIP responses", action="store_true")
-    parser.add_argument("--add-participants", help="Declare participants with names", action="store_true")
+    parser.add_argument("--show-bottom-actors", help="Show actor boxes at the bottom (mirrorActors: true)", action="store_true")
+    parser.add_argument("--verbose", help="Show debug and info log messages", action="store_true")
+    parser.add_argument("--no-add-participants", help="Do not add participant lines to diagram", action="store_true")
     parser.add_argument("--autonumber", help="Enable Mermaid autonumbering", action="store_true")
     parser.add_argument("--filter-method", help="Comma-separated list of SIP methods (e.g., INVITE,BYE)", default=None)
     parser.add_argument("--filter-status", help="Comma-separated list of SIP status codes (e.g., 200,486)", default=None)
     parser.add_argument("--add-time", help="Annotate each message with packet timestamp", action="store_true")
     parser.add_argument("--summary-table", help="Add a summary table of participant names to output", action="store_true")
     parser.add_argument("--logfile", help="Save log messages to a file", default=None)
-    parser.add_argument("--verbose", help="Show debug log messages", action="store_true")
-    parser.add_argument("--quiet", "--silent", help="Suppress informational log messages; only show errors", action="store_true")
-    parser.add_argument("--no-bottom-actors", help="Hide the actor boxes at the bottom of the diagram (mirrorActors: false)", action="store_true")
     parser.add_argument("--all-participants", help="Declare all possible participants seen, even if not shown in diagram", action="store_true")
     args = parser.parse_args()
 
-    # Standard logging precedence: quiet > verbose > info
-    if args.quiet:
-        log_level = logging.ERROR
-    elif args.verbose:
-        log_level = logging.DEBUG
-    else:
+    # Logging: quiet (ERROR) is default, unless verbose given
+    if args.verbose:
         log_level = logging.INFO
+    else:
+        log_level = logging.ERROR
 
     if args.logfile:
         logging.basicConfig(filename=args.logfile, level=log_level, format='%(asctime)s %(levelname)s: %(message)s')
@@ -286,8 +281,11 @@ def main():
 
     seq_count = 0
 
+    # By default, add participants unless --no-add-participants is set
+    add_participants = not args.no_add_participants
+
     # Assign short names if add_participants is specified
-    if args.add_participants:
+    if add_participants:
         if host2name:
             participant_map = {p: host2name[p] for p in all_participants if p in host2name}
         else:
@@ -307,7 +305,7 @@ def main():
         used_participants.add(b)
 
     # By default, declare only used participants. If --all-participants is set, declare all.
-    if args.add_participants:
+    if add_participants:
         if args.all_participants:
             participants_to_write = participant_map.keys()
         else:
@@ -317,21 +315,21 @@ def main():
     outfh = open(args.outfile, "w") if args.outfile else sys.stdout
 
     try:
-        # Mermaid init config for hiding bottom actors (mirrorActors: false)
-        if args.no_bottom_actors:
-            outfh.write('%%{init: { "sequence": { "mirrorActors": false } }}%%\n')
+        # Mermaid init config for mirrorActors: false (default), true if --show-bottom-actors
+        mirror_val = "true" if args.show_bottom_actors else "false"
+        outfh.write(f'%%{{init: {{ "sequence": {{ "mirrorActors": {mirror_val} }} }} }}%%\n')
         outfh.write("sequenceDiagram\n")
         if args.autonumber:
             outfh.write("    autonumber\n")
-        if args.add_participants:
+        if add_participants:
             for host in sorted(participants_to_write, key=lambda k: short_map[k]):
                 outfh.write(f"    participant {short_map[host]} as {host}\n")
         for pkt in sip_packets:
             a, b = pkt['src'], pkt['dst']
             if filter_unmapped and (a not in participant_map or b not in participant_map):
                 continue
-            a_out = short_map[a] if args.add_participants else a
-            b_out = short_map[b] if args.add_participants else b
+            a_out = short_map[a] if add_participants else a
+            b_out = short_map[b] if add_participants else b
             arrow = "->>" if pkt['req'] else "-->>"
             msg = pkt['text'].strip()
             # Remove all internal newlines and carriage returns and collapse whitespace
@@ -341,7 +339,7 @@ def main():
             outfh.write(f"    {a_out}{arrow}{b_out}: {msg}\n")
             seq_count += 1
 
-        if args.summary_table and args.add_participants:
+        if args.summary_table and add_participants:
             output_summary_table(outfh, participant_map, short_map)
     finally:
         if args.outfile:
