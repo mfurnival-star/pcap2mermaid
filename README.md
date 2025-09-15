@@ -147,6 +147,12 @@ sequenceDiagram
 
 ---
 
+## Acknowledgements
+
+This tool was developed primarily by [GitHub Copilot](https://github.com/features/copilot), GitHub’s AI coding assistant.
+
+---
+
 ## Tips
 
 - For large PCAP files, consider filtering with `tcpdump` or Wireshark before processing.
