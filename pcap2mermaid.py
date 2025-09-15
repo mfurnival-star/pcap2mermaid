@@ -1,343 +1,153 @@
-#!/usr/bin/env python3
-"""
-pcap2mermaid: Convert SIP packets in a pcap file to a Mermaid sequence diagram.
+# pcap2mermaid
 
-Usage:
-    python3 pcap2mermaid.py input.pcap [output.md] [options]
+[![License: GPL v2](https://img.shields.io/badge/License-GPL_v2-blue.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/Python-3.7%2B-blue.svg)](https://www.python.org/)
+[![scapy](https://img.shields.io/badge/scapy-GPL%20v2%2B-blue)](https://github.com/secdev/scapy)
 
-If output.md is omitted, the diagram is printed to the screen (stdout).
+**pcap2mermaid** is a Python tool that converts SIP traffic from a PCAP capture into a [Mermaid](https://mermaid-js.github.io/mermaid/#/sequenceDiagram) sequence diagram, which you can use to visualize call flows.
 
-Dependencies:
-    pip install scapy
-"""
-import sys
-import os
-import re
-import argparse
-import logging
-import csv
-from scapy.all import PcapReader, UDP, TCP, IP, IPv6, Raw
+This script is robust and feature-rich, supporting custom participant naming, SIP filtering, time annotation, summary tables, progress and error logging, and more.
 
-DEFAULT_SIP_PORT = 5060
-LARGE_PCAP_MB = 500
+---
 
-def check_input_file(infile):
-    if not os.path.isfile(infile):
-        logging.error(f"Input file '{infile}' does not exist or is not a file.")
-        sys.exit(1)
-    if not os.access(infile, os.R_OK):
-        logging.error(f"Input file '{infile}' is not readable.")
-        sys.exit(1)
-    size_mb = os.path.getsize(infile) / (1024 * 1024)
-    if size_mb > LARGE_PCAP_MB:
-        logging.warning(f"Input file '{infile}' is very large ({size_mb:.1f} MB). Consider filtering or splitting.")
+## Features
 
-def check_output_file(outfile):
-    try:
-        with open(outfile, "w") as f:
-            pass
-    except Exception as e:
-        logging.error(f"Cannot write to output file '{outfile}': {e}")
-        sys.exit(1)
+- **SIP-over-UDP/TCP, IPv4/IPv6** supported
+- **Custom participant naming** via mapping or CSV
+- **Autonumbered diagrams** (Mermaid's `autonumber`)
+- **SIP method/status filtering**
+- **Timestamp annotations** (optional)
+- **Summary mapping table** (optional)
+- **Progress and dropped-packet logging**
+- **Robust error handling**
+- **Large file support**
+- **Output to file or screen**: If you omit the output file argument, the diagram prints to your terminal (stdout).
+- **Short or mapped participant names** with `--add-participants` (e.g. `A`, `B`, `C`)
+- **SIP URI parameters (e.g. `;user=phone`) are omitted** from the sequence diagram for compatibility with Mermaid.
 
-def parse_mapping(mapping_str):
-    host2name = {}
-    if mapping_str:
-        for h in mapping_str.split(","):
-            parts = h.split("=")
-            if len(parts) != 2:
-                logging.error("Invalid mapping: '%s'", h)
-                sys.exit("Mapping must be comma-separated '<ip>:<port>=<name>'")
-            host2name[parts[0]] = parts[1]
-    return host2name
+---
 
-def parse_participant_csv(csv_file):
-    host2name = {}
-    try:
-        with open(csv_file, newline='') as csvf:
-            for row in csv.reader(csvf):
-                if not row or len(row) < 2:
-                    continue
-                host2name[row[0]] = row[1]
-    except Exception as e:
-        logging.error(f"Error reading participant names CSV '{csv_file}': {e}")
-        sys.exit(1)
-    return host2name
+## Requirements
 
-def parse_sip(data):
-    try:
-        text = data.decode(errors="ignore")
-    except Exception:
-        return None
+- Python 3.7+
+- [scapy](https://pypi.org/project/scapy/) (`pip install scapy`)
 
-    text = text.lstrip()
-    req_match = re.match(r"^([A-Z]+)\s+sip:([^ ]+)\s+SIP/2.0", text)
-    if req_match:
-        # Only keep part before ';' in target
-        target = req_match.group(2).split(';', 1)[0]
-        return {
-            'is_request': True,
-            'method': req_match.group(1),
-            'target': target,
-            'raw_line': text.splitlines()[0]
-        }
-    resp_match = re.match(r"^SIP/2.0\s+(\d{3})\s+(.+)", text)
-    if resp_match:
-        return {
-            'is_request': False,
-            'code': int(resp_match.group(1)),
-            'reason': resp_match.group(2),
-            'raw_line': text.splitlines()[0]
-        }
-    return None
+---
 
-def hostport(ip, port):
-    if ':' in ip and not ip.startswith('['):
-        return f"{ip}:{port}"
-    else:
-        return f"{ip}:{port}"
+## Usage
 
-def process_pcap(
-    infile, 
-    filter_port, 
-    host2name, 
-    filter_unmapped, 
-    skip_provisional=True,
-    method_filter=None,
-    status_filter=None,
-    progress_every=10000,
-    logger=None,
-):
-    sip_packets = []
-    pkt_count = 0
-    all_participants = set()
-    dropped = 0
-    dropped_reasons = {}
-    try:
-        with PcapReader(infile) as pcap:
-            for pkt in pcap:
-                pkt_count += 1
-                if pkt_count % progress_every == 0:
-                    logger and logger.info(f"Processed {pkt_count} packets...")
-                # IP Layer
-                if IP in pkt:
-                    l3 = pkt[IP]
-                    src_ip, dst_ip = l3.src, l3.dst
-                elif IPv6 in pkt:
-                    l3 = pkt[IPv6]
-                    src_ip, dst_ip = l3.src, l3.dst
-                else:
-                    dropped += 1
-                    dropped_reasons['no_ip'] = dropped_reasons.get('no_ip', 0) + 1
-                    continue
+```sh
+python3 pcap2mermaid.py input.pcap [output.md] [options]
+```
 
-                # L4 Layer
-                if UDP in pkt:
-                    l4 = pkt[UDP]
-                elif TCP in pkt:
-                    l4 = pkt[TCP]
-                else:
-                    dropped += 1
-                    dropped_reasons['no_udp_tcp'] = dropped_reasons.get('no_udp_tcp', 0) + 1
-                    continue
+- If `output.md` is omitted, the diagram is printed to the screen (stdout).
 
-                src = hostport(src_ip, l4.sport)
-                dst = hostport(dst_ip, l4.dport)
-                all_participants.add(src)
-                all_participants.add(dst)
+### Options
 
-                # Only SIP port in either direction
-                if l4.dport != filter_port and l4.sport != filter_port:
-                    dropped += 1
-                    dropped_reasons['not_sip_port'] = dropped_reasons.get('not_sip_port', 0) + 1
-                    continue
+| Option                       | Description                                                    |
+|------------------------------|----------------------------------------------------------------|
+| `--mapping`                  | Comma-separated host:port=name (e.g. `1.2.3.4:5060=PBX,...`)   |
+| `--participant-names`        | CSV file: `<ip>:<port>,name`                                   |
+| `--port`                     | SIP port (default: 5060)                                       |
+| `--add-participants`         | Add `participant` lines to diagram with short names (A, B, ...) |
+| `--autonumber`               | Add Mermaid `autonumber` to sequence diagram                   |
+| `--filter-method`            | Comma-separated SIP methods to include (e.g. `INVITE,BYE`)     |
+| `--filter-status`            | Comma-separated SIP status codes (e.g. `200,486`)              |
+| `--add-time`                 | Prepend timestamp to each message                              |
+| `--summary-table`            | Output a participant mapping table at end of output            |
+| `--no-skip-provisional`      | Include provisional (<180) SIP responses                       |
+| `--logfile`                  | Write logs to a file                                           |
+| `--verbose`                  | Show debug log messages                                        |
+| `--quiet`, `--silent`        | Suppress informational log messages; only show errors          |
 
-                # Only if payload
-                if Raw not in l4:
-                    dropped += 1
-                    dropped_reasons['no_raw'] = dropped_reasons.get('no_raw', 0) + 1
-                    continue
+---
 
-                sip_info = parse_sip(l4[Raw].load)
-                if not sip_info:
-                    dropped += 1
-                    dropped_reasons['not_sip'] = dropped_reasons.get('not_sip', 0) + 1
-                    continue
+### Example
 
-                if not sip_info['is_request']:
-                    if skip_provisional and sip_info['code'] < 180:
-                        dropped += 1
-                        dropped_reasons['provisional'] = dropped_reasons.get('provisional', 0) + 1
-                        continue
+#### Output to screen
 
-                # Filter by SIP method/status if requested
-                if method_filter and sip_info.get('is_request'):
-                    if sip_info.get('method', '').upper() not in method_filter:
-                        dropped += 1
-                        dropped_reasons['method_filter'] = dropped_reasons.get('method_filter', 0) + 1
-                        continue
-                if status_filter and not sip_info.get('is_request'):
-                    if str(sip_info.get('code')) not in status_filter:
-                        dropped += 1
-                        dropped_reasons['status_filter'] = dropped_reasons.get('status_filter', 0) + 1
-                        continue
+```sh
+python3 pcap2mermaid.py calls.pcap --add-participants --autonumber
+```
 
-                sip_packets.append({
-                    'req': sip_info['is_request'],
-                    'text': (
-                        f"{sip_info['method']} {sip_info['target']}"
-                        if sip_info['is_request']
-                        else f"{sip_info['code']} ({sip_info['reason'].rstrip(')')})"
-                    ),
-                    'src': src,
-                    'dst': dst,
-                    'time': pkt.time
-                })
-    except MemoryError:
-        logging.error("Out of memory reading large pcap file, try splitting it.")
-        sys.exit(1)
-    except Exception as e:
-        logging.error("Error reading pcap: %s", e)
-        sys.exit(1)
+#### Output to file
 
-    logger and logger.info(f"Parsed {pkt_count} packets, found {len(sip_packets)} SIP messages, dropped {dropped}")
-    return sip_packets, all_participants, pkt_count, dropped, dropped_reasons
+```sh
+python3 pcap2mermaid.py calls.pcap calls.md --add-participants --autonumber
+```
 
-def assign_participant_short_names(participants):
-    sorted_participants = sorted(participants)
-    # Use A, B, C, ... AA, AB, ...
-    names = []
-    for i in range(len(sorted_participants)):
-        name = ''
-        x = i
-        while True:
-            name = chr(ord('A') + (x % 26)) + name
-            x = x // 26 - 1
-            if x < 0:
-                break
-        names.append(name)
-    return {host: short for host, short in zip(sorted_participants, names)}
+#### With participant mapping
 
-def output_summary_table(outfh, participant_map, short_map):
-    outfh.write("\n%% Participant Mapping Table\n")
-    outfh.write("| Short Name | Host:Port |\n|-----------|-----------|\n")
-    for host in sorted(participant_map.keys(), key=lambda k: short_map[k]):
-        outfh.write(f"| {short_map[host]} | {host} |\n")
+```sh
+python3 pcap2mermaid.py calls.pcap calls.md --mapping "10.0.0.1:5060=PBX,10.0.0.2:5060=Phone"
+```
 
-def main():
-    parser = argparse.ArgumentParser(description="Convert SIP pcap to Mermaid sequence diagram.")
-    parser.add_argument("infile", help="Input pcap file")
-    parser.add_argument("outfile", nargs='?', help="Output Mermaid markdown file (omit to print to screen)")
-    parser.add_argument("--mapping", help="CSV: <ip>:<port>=<name>,...", default=None)
-    parser.add_argument("--participant-names", help="CSV file: <ip>:<port>,name", default=None)
-    parser.add_argument("--port", help="SIP port (default 5060)", type=int, default=DEFAULT_SIP_PORT)
-    parser.add_argument("--no-skip-provisional", help="Include <180 provisional SIP responses", action="store_true")
-    parser.add_argument("--add-participants", help="Declare participants with names", action="store_true")
-    parser.add_argument("--autonumber", help="Enable Mermaid autonumbering", action="store_true")
-    parser.add_argument("--filter-method", help="Comma-separated list of SIP methods (e.g., INVITE,BYE)", default=None)
-    parser.add_argument("--filter-status", help="Comma-separated list of SIP status codes (e.g., 200,486)", default=None)
-    parser.add_argument("--add-time", help="Annotate each message with packet timestamp", action="store_true")
-    parser.add_argument("--summary-table", help="Add a summary table of participant names to output", action="store_true")
-    parser.add_argument("--logfile", help="Save log messages to a file", default=None)
-    parser.add_argument("--verbose", help="Show debug log messages", action="store_true")
-    parser.add_argument("--quiet", "--silent", help="Suppress informational log messages; only show errors", action="store_true")
-    args = parser.parse_args()
+#### With custom participant CSV
 
-    # Standard logging precedence: quiet > verbose > info
-    if args.quiet:
-        log_level = logging.ERROR
-    elif args.verbose:
-        log_level = logging.DEBUG
-    else:
-        log_level = logging.INFO
+Create a `names.csv`:
+```
+10.0.0.1:5060,PBX
+10.0.0.2:5060,Phone
+```
 
-    if args.logfile:
-        logging.basicConfig(filename=args.logfile, level=log_level, format='%(asctime)s %(levelname)s: %(message)s')
-    else:
-        logging.basicConfig(level=log_level, format='%(levelname)s: %(message)s')
-    logger = logging.getLogger("pcap2mermaid")
+Then run:
+```sh
+python3 pcap2mermaid.py calls.pcap calls.md --participant-names names.csv --add-participants
+```
 
-    check_input_file(args.infile)
-    if args.outfile:
-        check_output_file(args.outfile)
+#### With SIP method filtering and time annotation
 
-    host2name = parse_mapping(args.mapping)
-    filter_unmapped = bool(args.mapping)
+```sh
+python3 pcap2mermaid.py calls.pcap calls.md --filter-method INVITE,BYE --add-time
+```
 
-    if args.participant_names:
-        host2name = parse_participant_csv(args.participant_names)
-        filter_unmapped = bool(host2name)
+#### Quiet mode (only errors are shown):
 
-    method_filter = [m.strip().upper() for m in args.filter_method.split(",")] if args.filter_method else None
-    status_filter = [s.strip() for s in args.filter_status.split(",")] if args.filter_status else None
+```sh
+python3 pcap2mermaid.py calls.pcap --add-participants --quiet
+```
 
-    sip_packets, all_participants, pkt_count, dropped, dropped_reasons = process_pcap(
-        args.infile,
-        args.port,
-        host2name,
-        filter_unmapped,
-        skip_provisional=not args.no_skip_provisional,
-        method_filter=method_filter,
-        status_filter=status_filter,
-        logger=logger
-    )
+---
 
-    seq_count = 0
+## Output Example
 
-    # Assign short names if add_participants is specified
-    if args.add_participants:
-        if host2name:
-            participant_map = {p: host2name[p] for p in all_participants if p in host2name}
-        else:
-            participant_map = {p: p for p in all_participants}
-        short_map = assign_participant_short_names(participant_map.keys())
-    else:
-        participant_map = host2name if filter_unmapped else {}
-        short_map = {p: p for p in all_participants}
+The output will look like:
 
-    # Decide output destination
-    outfh = open(args.outfile, "w") if args.outfile else sys.stdout
+```mermaid
+sequenceDiagram
+    autonumber
+    participant A as 10.33.6.100:5060
+    participant B as 10.33.6.101:5060
+    B->>A: INVITE 101@10.33.6.100
+    A-->>B: 180 (Ringing)
+    A-->>B: 200 (OK)
+    B->>A: ACK 101@10.33.6.100:5060
+    A->>B: BYE 201@10.33.6.101:5060
+    B-->>A: 200 (OK)
+```
 
-    try:
-        outfh.write("sequenceDiagram\n")
-        if args.autonumber:
-            outfh.write("    autonumber\n")
-        if args.add_participants:
-            for host in sorted(participant_map.keys(), key=lambda k: short_map[k]):
-                outfh.write(f"    participant {short_map[host]} as {host}\n")
-        for pkt in sip_packets:
-            a, b = pkt['src'], pkt['dst']
-            if filter_unmapped and (a not in participant_map or b not in participant_map):
-                continue
-            a_out = short_map[a] if args.add_participants else a
-            b_out = short_map[b] if args.add_participants else b
-            arrow = "->>" if pkt['req'] else "-->>"
-            msg = pkt['text'].strip()
-            # Remove all internal newlines and carriage returns and collapse whitespace
-            msg = re.sub(r'\s+', ' ', msg).strip()
-            if args.add_time:
-                msg = f"[{pkt['time']:.3f}] {msg}"
-            outfh.write(f"    {a_out}{arrow}{b_out}: {msg}\n")
-            seq_count += 1
+Notice:
+- **No SIP URI parameters** (e.g., `;user=phone`) appear in the output, to ensure Mermaid compatibility.
+- Short names (`A`, `B`, etc.) are used as participant labels.
+- No blank lines or illegal characters in messages.
 
-        if args.summary_table and args.add_participants:
-            output_summary_table(outfh, participant_map, short_map)
-    finally:
-        if args.outfile:
-            outfh.close()
+You can paste this into [Mermaid Live Editor](https://mermaid-js.github.io/mermaid-live-editor/) or compatible markdown viewers.
 
-    logger.info(f"Done, {seq_count} SIP packets written to sequence diagram ({'stdout' if not args.outfile else args.outfile})")
-    logger.info(f"Processed {pkt_count} packets, dropped {dropped} packets for these reasons: {dropped_reasons}")
+---
 
-    if filter_unmapped:
-        all_mapped = set(participant_map.keys())
-        seen = all_participants
-        unused = all_mapped - seen
-        if unused:
-            logger.warning(f"The following mappings in --mapping/CSV were never seen in the pcap: {unused}")
-        unseen = seen - all_mapped
-        if unseen:
-            logger.warning(f"The following participants were seen in pcap but not mapped: {unseen}")
+## Tips
 
-if __name__ == "__main__":
-    main()
+- For large PCAP files, consider filtering with `tcpdump` or Wireshark before processing.
+- If you use `--add-participants`, you can easily change the participant names in the Mermaid file.
+- Use `--summary-table` for quick mapping reference.
+- If you encounter Mermaid parse errors, ensure your SIP URIs do not contain forbidden characters (the script omits parameters for you).
+
+---
+
+## License
+
+[GNU General Public License v2.0 or later](LICENSE)
+
+**Note:** This project uses [scapy](https://github.com/secdev/scapy), which is licensed under the GPL v2 or later. Therefore, this tool is also licensed under the GPL v2 or later.
+
+---
