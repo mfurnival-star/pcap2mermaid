@@ -25,6 +25,7 @@ This script is robust and feature-rich, supporting custom participant naming, SI
 - **Short or mapped participant names** with `--add-participants` (e.g. `A`, `B`, `C`)
 - **SIP URI parameters (e.g. `;user=phone`) are omitted** from the sequence diagram for compatibility with Mermaid.
 - **Option to hide participant boxes at the bottom** (`--no-bottom-actors`)
+- **By default, only declares participants actually used in SIP messages** (diagram lines), **not all hosts/ports seen** (see below for `--all-participants`).
 
 ---
 
@@ -61,6 +62,7 @@ python3 pcap2mermaid.py input.pcap [output.md] [options]
 | `--verbose`           | Show debug log messages                                     |
 | `--quiet`, `--silent` | Suppress informational log messages; only show errors       |
 | `--no-bottom-actors`  | Hide the actor boxes (participants) at the bottom           |
+| `--all-participants`  | Declare all seen participants, even if not shown in diagram |
 
 ---
 
@@ -109,6 +111,12 @@ python3 pcap2mermaid.py calls.pcap calls.md --filter-method INVITE,BYE --add-tim
 python3 pcap2mermaid.py calls.pcap --add-participants --no-bottom-actors
 ```
 
+#### Declare all seen participants (not just those used in diagram):
+
+```sh
+python3 pcap2mermaid.py calls.pcap --add-participants --all-participants
+```
+
 ---
 
 ## Output Example
@@ -135,7 +143,7 @@ Notice:
 - No blank lines or illegal characters in messages.
 - The Mermaid `init` line disables the bottom row of actors.
 
-You can paste this into [Mermaid Live Editor](https://mermaid-js.github.io/mermaid-live-editor/) or compatible markdown viewers.
+You can paste this into [Mermaid Live Editor](https://mermaid.live/) or compatible markdown viewers.
 
 ---
 
