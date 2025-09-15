@@ -3,7 +3,9 @@
 pcap2mermaid: Convert SIP packets in a pcap file to a Mermaid sequence diagram.
 
 Usage:
-    python3 pcap2mermaid.py input.pcap output.md [options]
+    python3 pcap2mermaid.py input.pcap [output.md] [options]
+
+If output.md is omitted, the diagram is printed to the screen (stdout).
 
 Dependencies:
     pip install scapy
@@ -19,26 +21,26 @@ from scapy.all import PcapReader, UDP, TCP, IP, IPv6, Raw
 DEFAULT_SIP_PORT = 5060
 LARGE_PCAP_MB = 500
 
-def check_input_output_files(infile, outfile):
+def check_input_file(infile):
     if not os.path.isfile(infile):
         logging.error(f"Input file '{infile}' does not exist or is not a file.")
         sys.exit(1)
     if not os.access(infile, os.R_OK):
         logging.error(f"Input file '{infile}' is not readable.")
         sys.exit(1)
+    size_mb = os.path.getsize(infile) / (1024 * 1024)
+    if size_mb > LARGE_PCAP_MB:
+        logging.warning(f"Input file '{infile}' is very large ({size_mb:.1f} MB). Consider filtering or splitting.")
+
+def check_output_file(outfile):
     try:
         with open(outfile, "w") as f:
             pass
     except Exception as e:
         logging.error(f"Cannot write to output file '{outfile}': {e}")
         sys.exit(1)
-    # Large file warning
-    size_mb = os.path.getsize(infile) / (1024 * 1024)
-    if size_mb > LARGE_PCAP_MB:
-        logging.warning(f"Input file '{infile}' is very large ({size_mb:.1f} MB). Consider filtering or splitting.")
 
 def parse_mapping(mapping_str):
-    """Parse the host mapping string."""
     host2name = {}
     if mapping_str:
         for h in mapping_str.split(","):
@@ -50,7 +52,6 @@ def parse_mapping(mapping_str):
     return host2name
 
 def parse_participant_csv(csv_file):
-    """Parse custom participant name CSV (host:port,name)."""
     host2name = {}
     try:
         with open(csv_file, newline='') as csvf:
@@ -64,10 +65,6 @@ def parse_participant_csv(csv_file):
     return host2name
 
 def parse_sip(data):
-    """
-    Parse SIP message. Return dict with is_request, method, code, and raw_line.
-    Returns None if not SIP.
-    """
     try:
         text = data.decode(errors="ignore")
     except Exception:
@@ -93,7 +90,6 @@ def parse_sip(data):
     return None
 
 def hostport(ip, port):
-    """Format host:port, handle IPv6."""
     if ':' in ip and not ip.startswith('['):
         return f"[{ip}]:{port}"
     else:
@@ -110,7 +106,6 @@ def process_pcap(
     progress_every=10000,
     logger=None,
 ):
-    """Process packets and return list of SIP packet dicts."""
     sip_packets = []
     pkt_count = 0
     all_participants = set()
@@ -207,25 +202,22 @@ def process_pcap(
     return sip_packets, all_participants, pkt_count, dropped, dropped_reasons
 
 def assign_participant_names(participants):
-    """Assigns default participant names (P1, P2, ...) to each unique participant."""
     sorted_participants = sorted(participants)
     name_map = {}
     for idx, p in enumerate(sorted_participants, 1):
         name_map[p] = f"P{idx}"
     return name_map
 
-def output_summary_table(outfile, participant_map):
-    """Optionally output a summary mapping table at the top of the Mermaid/Markdown output."""
-    with open(outfile, "a") as outfh:
-        outfh.write("\n%% Participant Mapping Table\n")
-        outfh.write("| Default Name | Host:Port |\n|-------------|-----------|\n")
-        for host, name in participant_map.items():
-            outfh.write(f"| {name} | {host} |\n")
+def output_summary_table(outfh, participant_map):
+    outfh.write("\n%% Participant Mapping Table\n")
+    outfh.write("| Default Name | Host:Port |\n|-------------|-----------|\n")
+    for host, name in participant_map.items():
+        outfh.write(f"| {name} | {host} |\n")
 
 def main():
     parser = argparse.ArgumentParser(description="Convert SIP pcap to Mermaid sequence diagram.")
     parser.add_argument("infile", help="Input pcap file")
-    parser.add_argument("outfile", help="Output Mermaid markdown file")
+    parser.add_argument("outfile", nargs='?', help="Output Mermaid markdown file (omit to print to screen)")
     parser.add_argument("--mapping", help="CSV: <ip>:<port>=<name>,...", default=None)
     parser.add_argument("--participant-names", help="CSV file: <ip>:<port>,name", default=None)
     parser.add_argument("--port", help="SIP port (default 5060)", type=int, default=DEFAULT_SIP_PORT)
@@ -240,7 +232,6 @@ def main():
     parser.add_argument("--verbose", help="Show debug log messages", action="store_true")
     args = parser.parse_args()
 
-    # Configure logging
     log_level = logging.DEBUG if args.verbose else logging.INFO
     if args.logfile:
         logging.basicConfig(filename=args.logfile, level=log_level, format='%(asctime)s %(levelname)s: %(message)s')
@@ -248,22 +239,20 @@ def main():
         logging.basicConfig(level=log_level, format='%(levelname)s: %(message)s')
     logger = logging.getLogger("pcap2mermaid")
 
-    check_input_output_files(args.infile, args.outfile)
+    check_input_file(args.infile)
+    if args.outfile:
+        check_output_file(args.outfile)
 
-    # Parse host:port -> name mapping
     host2name = parse_mapping(args.mapping)
     filter_unmapped = bool(args.mapping)
 
-    # Parse participant-names CSV if set (overrides mapping)
     if args.participant_names:
         host2name = parse_participant_csv(args.participant_names)
-        filter_unmapped = bool(host2name)  # If CSV provided, only use mapped
+        filter_unmapped = bool(host2name)
 
-    # Parse filters
     method_filter = [m.strip().upper() for m in args.filter_method.split(",")] if args.filter_method else None
     status_filter = [s.strip() for s in args.filter_status.split(",")] if args.filter_status else None
 
-    # Main packet processing
     sip_packets, all_participants, pkt_count, dropped, dropped_reasons = process_pcap(
         args.infile,
         args.port,
@@ -277,25 +266,21 @@ def main():
 
     seq_count = 0
 
-    # Participant naming logic
     if args.add_participants:
         if host2name:
-            # If mapping, use mapped names as participants
             participant_map = {p: host2name[p] for p in all_participants if p in host2name}
-            named_participants = set(participant_map.values())
         else:
-            # Assign default names
             participant_map = assign_participant_names(all_participants)
-            named_participants = set(participant_map.values())
     else:
         participant_map = host2name if filter_unmapped else {}
 
-    # Write output (stream for memory efficiency)
-    with open(args.outfile, "w") as outfh:
+    # Decide output destination
+    outfh = open(args.outfile, "w") if args.outfile else sys.stdout
+
+    try:
         outfh.write("sequenceDiagram\n")
         if args.autonumber:
             outfh.write("    autonumber\n")
-        # Output participant declarations if requested
         if args.add_participants:
             declared = set()
             for p in sorted(all_participants):
@@ -303,13 +288,10 @@ def main():
                 if pname not in declared:
                     outfh.write(f"    participant {pname}\n")
                     declared.add(pname)
-        # Output SIP messages
         for pkt in sip_packets:
             a, b = pkt['src'], pkt['dst']
-            # Filtering for mapping
             if filter_unmapped and (a not in host2name or b not in host2name):
                 continue
-            # Use participant names if set (mapping or default)
             a_out = participant_map[a] if a in participant_map else a
             b_out = participant_map[b] if b in participant_map else b
             arrow = "->>" if pkt['req'] else "-->>"
@@ -319,15 +301,15 @@ def main():
             outfh.write(f"    {a_out}{arrow}{b_out}: {msg}\n")
             seq_count += 1
 
-    # Optional summary table
-    if args.summary_table and args.add_participants:
-        output_summary_table(args.outfile, participant_map)
+        if args.summary_table and args.add_participants:
+            output_summary_table(outfh, participant_map)
+    finally:
+        if args.outfile:
+            outfh.close()
 
-    # Print summary
-    logger.info(f"Done, {seq_count} SIP packets written to sequence diagram: {args.outfile}")
+    logger.info(f"Done, {seq_count} SIP packets written to sequence diagram ({'stdout' if not args.outfile else args.outfile})")
     logger.info(f"Processed {pkt_count} packets, dropped {dropped} packets for these reasons: {dropped_reasons}")
 
-    # Mapping consistency warnings
     if filter_unmapped:
         all_mapped = set(host2name.keys())
         seen = all_participants
