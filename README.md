@@ -71,6 +71,7 @@ python3 pcap2mermaid.py input.pcap [output.md] [options]
 - **Mermaid bottom actors**: Hidden by default (i.e., `%%{init: { "sequence": { "mirrorActors": false } }}%%` at top). Use `--show-bottom-actors` to display.
 - **Logging**: Only errors are shown by default. Use `--verbose` for info/debug logs.
 - **Participants declared**: Only those actually involved in SIP messages are declared unless `--all-participants` is set.
+- **Participant order**: By default, participants are ordered by their first appearance in the SIP flow, so the initiator is always leftmost and the flow is visually intuitive.
 
 ---
 
