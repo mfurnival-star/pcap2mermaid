@@ -24,6 +24,7 @@ This script is robust and feature-rich, supporting custom participant naming, SI
 - **Output to file or screen**: If you omit the output file argument, the diagram prints to your terminal (stdout).
 - **Short or mapped participant names** with `--add-participants` (e.g. `A`, `B`, `C`)
 - **SIP URI parameters (e.g. `;user=phone`) are omitted** from the sequence diagram for compatibility with Mermaid.
+- **Option to hide participant boxes at the bottom** (`--no-bottom-actors`)
 
 ---
 
@@ -44,21 +45,22 @@ python3 pcap2mermaid.py input.pcap [output.md] [options]
 
 ### Options
 
-| Option                       | Description                                                    |
-|------------------------------|----------------------------------------------------------------|
-| `--mapping`                  | Comma-separated host:port=name (e.g. `1.2.3.4:5060=PBX,...`)   |
-| `--participant-names`        | CSV file: `<ip>:<port>,name`                                   |
-| `--port`                     | SIP port (default: 5060)                                       |
-| `--add-participants`         | Add `participant` lines to diagram with short names (A, B, ...) |
-| `--autonumber`               | Add Mermaid `autonumber` to sequence diagram                   |
-| `--filter-method`            | Comma-separated SIP methods to include (e.g. `INVITE,BYE`)     |
-| `--filter-status`            | Comma-separated SIP status codes (e.g. `200,486`)              |
-| `--add-time`                 | Prepend timestamp to each message                              |
-| `--summary-table`            | Output a participant mapping table at end of output            |
-| `--no-skip-provisional`      | Include provisional (<180) SIP responses                       |
-| `--logfile`                  | Write logs to a file                                           |
-| `--verbose`                  | Show debug log messages                                        |
-| `--quiet`, `--silent`        | Suppress informational log messages; only show errors          |
+| Option                | Description                                                  |
+|-----------------------|-------------------------------------------------------------|
+| `--mapping`           | Comma-separated host:port=name (e.g. `1.2.3.4:5060=PBX,...`)|
+| `--participant-names` | CSV file: `<ip>:<port>,name`                                |
+| `--port`              | SIP port (default: 5060)                                    |
+| `--add-participants`  | Add `participant` lines to diagram with short names (A, B, ...)|
+| `--autonumber`        | Add Mermaid `autonumber` to sequence diagram                |
+| `--filter-method`     | Comma-separated SIP methods to include (e.g. `INVITE,BYE`)  |
+| `--filter-status`     | Comma-separated SIP status codes (e.g. `200,486`)           |
+| `--add-time`          | Prepend timestamp to each message                           |
+| `--summary-table`     | Output a participant mapping table at end of output         |
+| `--no-skip-provisional`| Include provisional (<180) SIP responses                   |
+| `--logfile`           | Write logs to a file                                        |
+| `--verbose`           | Show debug log messages                                     |
+| `--quiet`, `--silent` | Suppress informational log messages; only show errors       |
+| `--no-bottom-actors`  | Hide the actor boxes (participants) at the bottom           |
 
 ---
 
@@ -101,19 +103,20 @@ python3 pcap2mermaid.py calls.pcap calls.md --participant-names names.csv --add-
 python3 pcap2mermaid.py calls.pcap calls.md --filter-method INVITE,BYE --add-time
 ```
 
-#### Quiet mode (only errors are shown):
+#### Hide bottom actors (participant boxes at the bottom):
 
 ```sh
-python3 pcap2mermaid.py calls.pcap --add-participants --quiet
+python3 pcap2mermaid.py calls.pcap --add-participants --no-bottom-actors
 ```
 
 ---
 
 ## Output Example
 
-The output will look like:
+With `--add-participants --autonumber --no-bottom-actors`, the output will look like:
 
 ```mermaid
+%%{init: { "sequence": { "mirrorActors": false } }}%%
 sequenceDiagram
     autonumber
     participant A as 10.33.6.100:5060
@@ -130,6 +133,7 @@ Notice:
 - **No SIP URI parameters** (e.g., `;user=phone`) appear in the output, to ensure Mermaid compatibility.
 - Short names (`A`, `B`, etc.) are used as participant labels.
 - No blank lines or illegal characters in messages.
+- The Mermaid `init` line disables the bottom row of actors.
 
 You can paste this into [Mermaid Live Editor](https://mermaid-js.github.io/mermaid-live-editor/) or compatible markdown viewers.
 
@@ -149,5 +153,3 @@ You can paste this into [Mermaid Live Editor](https://mermaid-js.github.io/merma
 [GNU General Public License v2.0 or later](LICENSE)
 
 **Note:** This project uses [scapy](https://github.com/secdev/scapy), which is licensed under the GPL v2 or later. Therefore, this tool is also licensed under the GPL v2 or later.
-
----
