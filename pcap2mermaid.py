@@ -225,10 +225,8 @@ def output_summary_table(outfh, participant_map, short_map):
         outfh.write(f"| {short_map[host]} | {host} |\n")
 
 def encode_mermaid_for_playground(diagram_code):
-    # This produces a pako-compatible base64 encoding
-    compressed = zlib.compress(diagram_code.encode("utf-8"))
-    # Remove zlib header/footer for pako compatibility
-    compressed = compressed[2:-4]
+    # Use raw DEFLATE (no zlib header/footer, wbits=-15)
+    compressed = zlib.compress(diagram_code.encode("utf-8"), level=9, wbits=-15)
     b64 = base64.urlsafe_b64encode(compressed).decode("utf-8").rstrip("=")
     return b64
 
