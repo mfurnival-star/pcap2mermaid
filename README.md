@@ -26,6 +26,7 @@ This script is robust and feature-rich, supporting custom participant naming, SI
 - **SIP URI parameters (e.g. `;user=phone`) are omitted** from the sequence diagram for compatibility with Mermaid.
 - **Participant boxes at the bottom are hidden by default** (`mirrorActors: false`); use `--show-bottom-actors` to reveal.
 - **By default, only declares participants actually used in SIP messages** (diagram lines), **not all hosts/ports seen** (see below for `--all-participants`).
+- **Mermaid Live Editor Link Output**: Use `--linktoplayground` to get a shareable URL to view/edit your diagram in [Mermaid Live Editor](https://mermaid.live/).
 
 ---
 
@@ -62,6 +63,7 @@ python3 pcap2mermaid.py input.pcap [output.md] [options]
 | `--verbose`           | Show debug/info log messages (default: quiet/error-only)    |
 | `--all-participants`  | Declare all seen participants, even if not shown in diagram |
 | `--show-bottom-actors`| Show actor boxes (participants) at the bottom (default: hide)|
+| `--linktoplayground`  | Print a link to open the diagram in Mermaid Live Editor     |
 
 ---
 
@@ -125,6 +127,12 @@ python3 pcap2mermaid.py calls.pcap --show-bottom-actors
 python3 pcap2mermaid.py calls.pcap --all-participants
 ```
 
+#### Print a Mermaid Live Editor link:
+
+```sh
+python3 pcap2mermaid.py calls.pcap --linktoplayground
+```
+
 ---
 
 ## Output Example
@@ -159,6 +167,7 @@ This tool was developed primarily by [GitHub Copilot](https://github.com/feature
 - If you use participant mapping, you can easily change the participant names in the Mermaid file or use the summary table.
 - Use `--summary-table` for quick mapping reference.
 - If you encounter Mermaid parse errors, ensure your SIP URIs do not contain forbidden characters (the script omits parameters for you).
+- Use `--linktoplayground` to quickly visualize your diagram in [Mermaid Live Editor](https://mermaid.live/).
 
 ---
 
