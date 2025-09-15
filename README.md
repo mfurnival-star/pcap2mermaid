@@ -1,5 +1,9 @@
 # pcap2mermaid
 
+[![License: GPL v2](https://img.shields.io/badge/License-GPL_v2-blue.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/Python-3.7%2B-blue.svg)](https://www.python.org/)
+[![scapy](https://img.shields.io/badge/scapy-GPL%20v2%2B-blue)](https://github.com/secdev/scapy)
+
 **pcap2mermaid** is a Python tool that converts SIP traffic from a PCAP capture into a [Mermaid](https://mermaid-js.github.io/mermaid/#/sequenceDiagram) sequence diagram, which you can use to visualize call flows.
 
 This script is robust and feature-rich, supporting custom participant naming, SIP filtering, time annotation, summary tables, progress and error logging, and more.
@@ -115,6 +119,8 @@ You can paste this into [Mermaid Live Editor](https://mermaid-js.github.io/merma
 
 ## License
 
-MIT
+[GNU General Public License v2.0 or later](LICENSE)
+
+**Note:** This project uses [scapy](https://github.com/secdev/scapy), which is licensed under the GPL v2 or later. Therefore, this tool is also licensed under the GPL v2 or later.
 
 ---
