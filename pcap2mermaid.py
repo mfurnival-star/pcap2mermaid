@@ -230,9 +230,17 @@ def main():
     parser.add_argument("--summary-table", help="Add a summary table of participant names to output", action="store_true")
     parser.add_argument("--logfile", help="Save log messages to a file", default=None)
     parser.add_argument("--verbose", help="Show debug log messages", action="store_true")
+    parser.add_argument("--quiet", "--silent", help="Suppress informational log messages; only show errors", action="store_true")
     args = parser.parse_args()
 
-    log_level = logging.DEBUG if args.verbose else logging.INFO
+    # Standard logging precedence: quiet > verbose > info
+    if args.quiet:
+        log_level = logging.ERROR
+    elif args.verbose:
+        log_level = logging.DEBUG
+    else:
+        log_level = logging.INFO
+
     if args.logfile:
         logging.basicConfig(filename=args.logfile, level=log_level, format='%(asctime)s %(levelname)s: %(message)s')
     else:
