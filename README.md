@@ -21,6 +21,7 @@ This script is robust and feature-rich, supporting custom participant naming, SI
 - **Progress and dropped-packet logging**
 - **Robust error handling**
 - **Large file support**
+- **Output to file or screen**: If you omit the output file argument, the diagram prints to your terminal (stdout).
 
 ---
 
@@ -34,8 +35,10 @@ This script is robust and feature-rich, supporting custom participant naming, SI
 ## Usage
 
 ```sh
-python3 pcap2mermaid.py input.pcap output.md [options]
+python3 pcap2mermaid.py input.pcap [output.md] [options]
 ```
+
+- If `output.md` is omitted, the diagram is printed to the screen (stdout).
 
 ### Options
 
@@ -58,7 +61,13 @@ python3 pcap2mermaid.py input.pcap output.md [options]
 
 ### Example
 
-#### Basic usage
+#### Output to screen
+
+```sh
+python3 pcap2mermaid.py calls.pcap --add-participants --autonumber
+```
+
+#### Output to file
 
 ```sh
 python3 pcap2mermaid.py calls.pcap calls.md --add-participants --autonumber
